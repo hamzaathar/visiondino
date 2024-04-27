@@ -104,13 +104,17 @@ def main():
 
 
     # Model setup
+
     vit_model_name, embedding_dim = "vit_deit_small_patch16_224", 384
+    student_vit = timm.create_model(vit_model_name, pretrained=args.pretrained)
+    teacher_vit = timm.create_model(vit_model_name, pretrained=args.pretrained)
+    
     student_model = MultiCropWrapper(
-        timm.create_model(vit_model_name, pretrained=args.pretrained),
+        student_vit,
         Head(embedding_dim, args.out_dim, norm_last_layer=args.norm_last_layer),
     ).to(device)
     teacher_model = MultiCropWrapper(
-        timm.create_model(vit_model_name, pretrained=args.pretrained),
+        teacher_vit,
         Head(embedding_dim, args.out_dim),
     ).to(device)
 
