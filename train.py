@@ -11,7 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import ImageFolder
 
 from evaluation import compute_embedding, compute_knn
-from utils import DataAugmentation, Head, Loss, MultiCropWrapper, clip_gradients
+from utils import Head, Loss, MultiCropWrapper, clip_gradients
+from DataAugmentation import DataAugmentation
 
 
 def main():
@@ -59,17 +60,24 @@ def main():
         label_mapping = json.load(f)
 
     # Data transformations
-    augmentation_transform = DataAugmentation(size=224, n_local_crops=args.n_crops - 2)#Size of input image with numb of local crops -2 due to the 2 global crops
-    plain_transform = transforms.Compose([# Transform PIL image to tensor
+    # Size of input image with numb of local crops -2 due to the 2 global crops
+    augmentation_transform = DataAugmentation(
+        size=224, n_local_crops=args.n_crops - 2)
+    plain_transform = transforms.Compose([  # Transform PIL image to tensor
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
         transforms.Resize((224, 224)),
     ])
 
     # Define datasets and data loaders
-    train_dataset_aug = ImageFolder(train_dataset_path, transform=augmentation_transform) # Used for training, augmented dataset
-    train_dataset_plain = ImageFolder(train_dataset_path, transform=plain_transform) # Used for Visualizing embeddings after running training set result through KNN classifier
-    val_dataset_plain = ImageFolder(val_dataset_path, transform=plain_transform)
+    # Used for training, augmented dataset
+    train_dataset_aug = ImageFolder(
+        train_dataset_path, transform=augmentation_transform)
+    # Used for Visualizing embeddings after running training set result through KNN classifier
+    train_dataset_plain = ImageFolder(
+        train_dataset_path, transform=plain_transform)
+    val_dataset_plain = ImageFolder(
+        val_dataset_path, transform=plain_transform)
 
     if train_dataset_plain.classes != val_dataset_plain.classes:
         raise ValueError("Inconsistent classes")
@@ -88,27 +96,27 @@ def main():
         drop_last=False,
         num_workers=num_workers,
     )
-    val_loader_plain = DataLoader( # loader of validate data to generate embeddings
+    val_loader_plain = DataLoader(  # loader of validate data to generate embeddings
         val_dataset_plain,
         batch_size=args.batch_size_eval,
         drop_last=False,
         num_workers=num_workers,
     )
-    val_loader_plain_subset = DataLoader( # subset of validate to generate embeddings, used for visualization on TensorBoard
+    val_loader_plain_subset = DataLoader(  # subset of validate to generate embeddings, used for visualization on TensorBoard
         val_dataset_plain,
         batch_size=args.batch_size_eval,
         drop_last=False,
-        sampler=SubsetRandomSampler(list(range(0, len(val_dataset_plain), 50))),
+        sampler=SubsetRandomSampler(
+            list(range(0, len(val_dataset_plain), 50))),
         num_workers=num_workers,
     )
-
 
     # Model setup
 
     vit_model_name, embedding_dim = "vit_deit_small_patch16_224", 384
     student_vit = timm.create_model(vit_model_name, pretrained=args.pretrained)
     teacher_vit = timm.create_model(vit_model_name, pretrained=args.pretrained)
-    
+
     student_model = MultiCropWrapper(
         student_vit,
         Head(embedding_dim, args.out_dim, norm_last_layer=args.norm_last_layer),
@@ -118,13 +126,16 @@ def main():
         Head(embedding_dim, args.out_dim),
     ).to(device)
 
-    teacher_model.load_state_dict(student_model.state_dict())# make sure teacher and student model weights are identical at the start ( Wont hold after training as teacher weights will be a weighted avereage of the student weights)
+    # make sure teacher and student model weights are identical at the start ( Wont hold after training as teacher weights will be a weighted avereage of the student weights)
+    teacher_model.load_state_dict(student_model.state_dict())
 
-    for param in teacher_model.parameters(): #Make teachers params untrainable (save memory), as we only train student model.
+    # Make teachers params untrainable (save memory), as we only train student model.
+    for param in teacher_model.parameters():
         param.requires_grad = False
 
     # Loss setup
-    loss_instance = Loss(args.out_dim, teacher_temp=args.teacher_temp, student_temp=args.student_temp).to(device)
+    loss_instance = Loss(args.out_dim, teacher_temp=args.teacher_temp,
+                         student_temp=args.student_temp).to(device)
     learning_rate = 0.0005 * args.batch_size / 256
     optimizer = torch.optim.AdamW(
         student_model.parameters(),
@@ -138,12 +149,14 @@ def main():
     num_steps = 0
 
     for epoch in range(args.n_epochs):
-        for batch_idx, (images, _) in tqdm.tqdm(enumerate(train_loader_aug), total=num_batches): # as this is self supervised learning, we dont use the labels from the loader
+        # as this is self supervised learning, we dont use the labels from the loader
+        for batch_idx, (images, _) in tqdm.tqdm(enumerate(train_loader_aug), total=num_batches):
             if num_steps % args.logging_freq == 0:
                 student_model.eval()
 
                 # Embeddings
-                embs, imgs, labels_ = compute_embedding(student_model.backbone, val_loader_plain_subset)
+                embs, imgs, labels_ = compute_embedding(
+                    student_model.backbone, val_loader_plain_subset)
                 writer.add_embedding(
                     embs,
                     metadata=[label_mapping[label] for label in labels_],
@@ -153,10 +166,12 @@ def main():
                 )
 
                 # KNN evaluation
-                current_accuracy = compute_knn(student_model.backbone, train_loader_plain, val_loader_plain)  # compute accuracy of model using KNN
+                # compute accuracy of model using KNN
+                current_accuracy = compute_knn(
+                    student_model.backbone, train_loader_plain, val_loader_plain)
                 writer.add_scalar("knn-accuracy", current_accuracy, num_steps)
 
-                if current_accuracy > best_accuracy: #Save best model
+                if current_accuracy > best_accuracy:  # Save best model
                     torch.save(student_model, logging_dir / "best_model.pth")
                     best_accuracy = current_accuracy
 
@@ -164,24 +179,30 @@ def main():
 
             images = [img.to(device) for img in images]
 
-            teacher_output = teacher_model(images[:2]) #Teacher model only gets the 2 global cropped images
-            student_output = student_model(images) #Student model gets all the images
+            # Teacher model only gets the 2 global cropped images
+            teacher_output = teacher_model(images[:2])
+            # Student model gets all the images
+            student_output = student_model(images)
 
-            loss = loss_instance(student_output, teacher_output) # Compute loss between the Student and teacher model outputs
+            # Compute loss between the Student and teacher model outputs
+            loss = loss_instance(student_output, teacher_output)
 
-            optimizer.zero_grad()#Backprop
+            optimizer.zero_grad()  # Backprop
             loss.backward()
             clip_gradients(student_model, args.clip_grad)
-            optimizer.step() #Student model weights updated
+            optimizer.step()  # Student model weights updated
 
-            #Now update the Teacher model based on the Student Model
+            # Now update the Teacher model based on the Student Model
             with torch.no_grad():
-                for student_param, teacher_param in zip(student_model.parameters(), teacher_model.parameters()): #Update parameter by parrameter
-                    #Update using the exponentional moving average
+                # Update parameter by parrameter
+                for student_param, teacher_param in zip(student_model.parameters(), teacher_model.parameters()):
+                    # Update using the exponentional moving average
                     teacher_param.data.mul_(args.momentum_teacher)
-                    teacher_param.data.add_((1 - args.momentum_teacher) * student_param.detach().data)
+                    teacher_param.data.add_(
+                        (1 - args.momentum_teacher) * student_param.detach().data)
 
-            writer.add_scalar("train_loss", loss, num_steps) #Add to tensorboard
+            # Add to tensorboard
+            writer.add_scalar("train_loss", loss, num_steps)
 
             num_steps += 1
 
