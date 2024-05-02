@@ -5,6 +5,7 @@ import pathlib
 import timm
 import torch
 import torchvision.transforms as transforms
+import torchvision
 import tqdm
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
@@ -13,6 +14,9 @@ from torchvision.datasets import ImageFolder
 from evaluation import compute_embedding, compute_knn
 from utils import Head, DINOLoss, MultiCropWrapper, clip_gradients
 from DataAugmentation import DataAugmentation
+import tensorflow as tf
+import tensorboard as tb
+tf.io.gfile = tb.compat.tensorflow_stub.io.gfile
 
 
 def main():
@@ -42,8 +46,6 @@ def main():
     print(vars(args))
 
     # Dataset paths
-    train_dataset_path = pathlib.Path("data/imagenette2-320/train")
-    val_dataset_path = pathlib.Path("data/imagenette2-320/val")
     labels_path = pathlib.Path("data/imagenette_labels.json")
 
     # Tensorboard logging
@@ -56,8 +58,8 @@ def main():
     num_workers = 4
 
     # Load label mapping
-    with labels_path.open("r") as f:
-        label_mapping = json.load(f)
+    label_mapping = ('plane', 'car', 'bird', 'cat',
+                     'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     # Data transformations
     # Size of input image with numb of local crops -2 due to the 2 global crops
@@ -71,13 +73,19 @@ def main():
 
     # Define datasets and data loaders
     # Used for training, augmented dataset
-    train_dataset_aug = ImageFolder(
-        train_dataset_path, transform=augmentation_transform)
+    train_dataset_aug = torchvision.datasets.CIFAR10(root='./data',
+                                                     download=True,
+                                                     train=True,
+                                                     transform=augmentation_transform)
     # Used for Visualizing embeddings after running training set result through KNN classifier
-    train_dataset_plain = ImageFolder(
-        train_dataset_path, transform=plain_transform)
-    val_dataset_plain = ImageFolder(
-        val_dataset_path, transform=plain_transform)
+    train_dataset_plain = torchvision.datasets.CIFAR10(root='./data',
+                                                       download=True,
+                                                       train=True,
+                                                       transform=plain_transform)
+    val_dataset_plain = torchvision.datasets.CIFAR10(root='./data',
+                                                     download=True,
+                                                     train=False,
+                                                     transform=plain_transform)
 
     if train_dataset_plain.classes != val_dataset_plain.classes:
         raise ValueError("Inconsistent classes")
@@ -88,7 +96,7 @@ def main():
         shuffle=True,
         drop_last=True,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=True
     )
     train_loader_plain = DataLoader(
         train_dataset_plain,
@@ -135,7 +143,7 @@ def main():
 
     # Loss setup
     loss_instance = DINOLoss(args.out_dim, teacher_temp=args.teacher_temp,
-                         student_temp=args.student_temp).to(device)
+                             student_temp=args.student_temp).to(device)
     learning_rate = 0.0005 * args.batch_size / 256
     optimizer = torch.optim.AdamW(
         student_model.parameters(),
@@ -159,7 +167,7 @@ def main():
                     student_model.backbone, val_loader_plain_subset)
                 writer.add_embedding(
                     embs,
-                    metadata=[label_mapping[label] for label in labels_],
+                    metadata=labels_,
                     label_img=imgs,
                     global_step=num_steps,
                     tag="embeddings",

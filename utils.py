@@ -28,63 +28,110 @@ class MultiCropWrapper(nn.Module):
 
 
 class DINOLoss(nn.Module):
-    def __init__(self, out_dim, n_crops, warmup_temp_teacher, temp_teacher,
-                 warmup_temp_teacher_epochs, n_epochs, temp_student=0.1,
-                 momentum_center=0.9):
+    """The loss function.
+
+    We subclass the `nn.Module` becuase we want to create a buffer for the
+    logits center of the teacher.
+
+    Parameters
+    ----------
+    out_dim : int
+        The dimensionality of the final layer (we computed the softmax over).
+
+    teacher_temp, student_temp : float
+        Softmax temperature of the teacher resp. student.
+
+    center_momentum : float
+        Hyperparameter for the exponential moving average that determines
+        the center logits. The higher the more the running average matters.
+    """
+
+    def __init__(
+        self, out_dim, teacher_temp=0.04, student_temp=0.1, center_momentum=0.9
+    ):
         super().__init__()
-        self.temp_student = temp_student
-        self.momentum_center = momentum_center
-        self.n_crops = n_crops
+        self.student_temp = student_temp
+        self.teacher_temp = teacher_temp
+        self.center_momentum = center_momentum
         self.register_buffer("center", torch.zeros(1, out_dim))
-        # we apply a warm up for the teacher temperature because
-        # a too high temperature makes the training instable at the beginning
-        self.temp_teacher_schedule = np.concatenate((
-            np.linspace(warmup_temp_teacher,
-                        temp_teacher, warmup_temp_teacher_epochs),
-            np.ones(n_epochs - warmup_temp_teacher_epochs) * temp_teacher
-        ))
 
-    def forward(self, output_student, output_teacher, epoch):
-        """
-        Cross-entropy between softmax outputs of the teacher and student networks.
-        """
-        out_student = output_student / self.temp_student
-        out_student = out_student.chunk(self.n_crops)
+    def forward(self, student_output, teacher_output):
+        """Evaluate loss.
 
-        # teacher centering and sharpening
-        temp = self.temp_teacher_schedule[epoch]
-        out_teacher = F.softmax((output_teacher - self.center) / temp, dim=-1)
-        out_teacher = out_teacher.detach().chunk(2)
+        Parameters
+        ----------
+        student_output, teacher_output : tuple
+            Tuple of tensors of shape `(n_samples, out_dim)` representing
+            logits. The length is equal to number of crops.
+            Note that student processed all crops and that the two initial crops
+            are the global ones.
+
+        Returns
+        -------
+        loss : torch.Tensor
+            Scalar representing the average loss.
+        """
+        student_temp = [s / self.student_temp for s in student_output]
+        teacher_temp = [(t - self.center) /
+                        self.teacher_temp for t in teacher_output]
+
+        student_sm = [F.log_softmax(s, dim=-1) for s in student_temp]
+        teacher_sm = [F.softmax(t, dim=-1).detach() for t in teacher_temp]
 
         total_loss = 0
         n_loss_terms = 0
-        for iq, q in enumerate(out_teacher):
-            for v in range(len(out_student)):
-                if v == iq:
-                    # we skip cases where student and teacher operate on the same view
+
+        for t_ix, t in enumerate(teacher_sm):
+            for s_ix, s in enumerate(student_sm):
+                if t_ix == s_ix:
                     continue
-                loss = torch.sum(-q * F.log_softmax(out_student[v], dim=-1), dim=-1)
-                total_loss += loss.mean()
+
+                loss = torch.sum(-t * s, dim=-1)  # (n_samples,)
+                total_loss += loss.mean()  # scalar
                 n_loss_terms += 1
+
         total_loss /= n_loss_terms
-        self.update_center(output_teacher)
+        self.update_center(teacher_output)
+
         return total_loss
 
-
     @torch.no_grad()
-    def update_center(self, output_teacher):
+    def update_center(self, teacher_output):
+        """Update center used for teacher output.
+
+        Compute the exponential moving average.
+
+        Parameters
+        ----------
+        teacher_output : tuple
+            Tuple of tensors of shape `(n_samples, out_dim)` where each
+            tensor represents a different crop.
         """
-        Update center used for teacher output.
-        """
-        batch_center = torch.cat(output_teacher).mean(
+        batch_center = torch.cat(teacher_output).mean(
             dim=0, keepdim=True
         )  # (1, out_dim)
         self.center = self.center * self.center_momentum + batch_center * (
             1 - self.center_momentum
         )
 
-        # ema update
-        #self.center = self.center * self.momentum_center + batch_center * (1 - self.momentum_center)
+
+def clip_gradients(model, clip=2.0):
+    """Rescale norm of computed gradients.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Module.
+
+    clip : float
+        Maximum norm.
+    """
+    for p in model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            clip_coef = clip / (param_norm + 1e-6)
+            if clip_coef < 1:
+                p.grad.data.mul_(clip_coef)
 
 
 class Head(nn.Module):
@@ -126,26 +173,8 @@ class Head(nn.Module):
 
     def forward(self, x):
         x = self.mlp(x)  # (n_samples, bottleneck_dim)
-        x = nn.functional.normalize(x, dim=-1, p=2)  # (n_samples, bottleneck_dim)
+        # (n_samples, bottleneck_dim)
+        x = nn.functional.normalize(x, dim=-1, p=2)
         x = self.last_layer(x)  # (n_samples, out_dim)
 
         return x
-    
-    
-def clip_gradients(model, clip=2.0):
-    """Rescale norm of computed gradients.
-
-    Parameters
-    ----------
-    model : nn.Module
-        Module.
-
-    clip : float
-        Maximum norm.
-    """
-    for p in model.parameters():
-        if p.grad is not None:
-            param_norm = p.grad.data.norm(2)
-            clip_coef = clip / (param_norm + 1e-6)
-            if clip_coef < 1:
-                p.grad.data.mul_(clip_coef)

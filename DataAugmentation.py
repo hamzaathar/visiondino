@@ -2,14 +2,14 @@ import torchvision.transforms as transforms
 from PIL import Image
 
 
-class RandomGaussianBlur(transforms.RandomTransforms):
+class RandomGaussianBlur(transforms.RandomApply):
     def __init__(self, p=0.5, kernel_size=5, sigma=(0.1, 2)):
         gaussian_blur = transforms.GaussianBlur(
             kernel_size=kernel_size, sigma=sigma)
         super(RandomGaussianBlur, self).__init__([gaussian_blur], p=p)
 
 
-class RandomColorJitter(transforms.RandomTransforms):
+class RandomColorJitter(transforms.RandomApply):
     def __init__(self, p=0.5, brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1):
         color_jitter = transforms.ColorJitter(
             brightness=brightness,
