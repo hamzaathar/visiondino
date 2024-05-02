@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import ImageFolder
 
 from evaluation import compute_embedding, compute_knn
-from utils import Head, Loss, MultiCropWrapper, clip_gradients
+from utils import Head, DINOLoss, MultiCropWrapper, clip_gradients
 from DataAugmentation import DataAugmentation
 
 
@@ -134,7 +134,7 @@ def main():
         param.requires_grad = False
 
     # Loss setup
-    loss_instance = Loss(args.out_dim, teacher_temp=args.teacher_temp,
+    loss_instance = DINOLoss(args.out_dim, teacher_temp=args.teacher_temp,
                          student_temp=args.student_temp).to(device)
     learning_rate = 0.0005 * args.batch_size / 256
     optimizer = torch.optim.AdamW(
