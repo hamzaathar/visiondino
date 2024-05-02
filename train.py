@@ -22,7 +22,7 @@ def main():
     )
     parser.add_argument("-b", "--batch-size", type=int, default=32)
     parser.add_argument(
-        "-d", "--device", type=str, choices=("cpu", "cuda"), default="cpu"
+        "-d", "--device", type=str, choices=("cpu", "cuda"), default="cuda"
     )
     parser.add_argument("-l", "--logging-freq", type=int, default=200)
     parser.add_argument("--momentum-teacher", type=int, default=0.9995)
