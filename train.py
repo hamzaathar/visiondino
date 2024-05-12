@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--clip-grad", type=float, default=2.0)
     parser.add_argument("--norm-last-layer", action="store_true")
     parser.add_argument("--batch-size-eval", type=int, default=64)
+    parser.add_argument("--subset", type=int, default=0)
     parser.add_argument("--teacher-temp", type=float, default=0.04)
     parser.add_argument("--student-temp", type=float, default=0.1)
     parser.add_argument("--pretrained", action="store_true")
@@ -88,19 +89,20 @@ def main():
                                                      train=False,
                                                      transform=plain_transform)
 
-    # train_aug_classes = train_dataset_aug.classes
-    # train_plain_classes = train_dataset_plain.classes
-    # val_plan_classes = val_dataset_plain.classes
-    #
-    # num_images = 300
-    # subset_indices = range(num_images)
-    #
-    # train_dataset_aug = Subset(train_dataset_aug, subset_indices)
-    # train_dataset_aug.classes = train_aug_classes
-    # train_dataset_plain = Subset(train_dataset_plain, subset_indices)
-    # train_dataset_plain.classes = train_plain_classes
-    # val_dataset_plain = Subset(val_dataset_plain, subset_indices)
-    # val_dataset_plain.classes = val_plan_classes
+    if args.subset != 0:
+        train_aug_classes = train_dataset_aug.classes
+        train_plain_classes = train_dataset_plain.classes
+        val_plan_classes = val_dataset_plain.classes
+
+        num_images = 300
+        subset_indices = range(num_images)
+
+        train_dataset_aug = Subset(train_dataset_aug, subset_indices)
+        train_dataset_aug.classes = train_aug_classes
+        train_dataset_plain = Subset(train_dataset_plain, subset_indices)
+        train_dataset_plain.classes = train_plain_classes
+        val_dataset_plain = Subset(val_dataset_plain, subset_indices)
+        val_dataset_plain.classes = val_plan_classes
 
     if train_dataset_plain.classes != val_dataset_plain.classes:
         raise ValueError("Inconsistent classes")
