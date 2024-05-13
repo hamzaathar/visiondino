@@ -24,7 +24,12 @@ pip install -r requirements.txt
 python train.py
 ```
 
-4. Visualize the outputs using tensorboard
+4. Run the testing script
+```bash
+python test.py
+```
+
+5. Visualize the outputs using tensorboard
 ```bash
 tensorboard --logdir logs
 ```
