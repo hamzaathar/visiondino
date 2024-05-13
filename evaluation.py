@@ -1,7 +1,59 @@
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, classification_report
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
+
+
+def compute_logReg(backbone, data_loader_train, data_loader_val):
+    """Get CLS embeddings and use KNN classifier on them.
+
+    We load all embeddings in memory and use sklearn. Should
+    be doable.
+
+    Parameters
+    ----------
+    backbone : timm.models.vision_transformer.VisionTransformer
+        Vision transformer whose head is just an identity
+        mapping.
+
+    data_loader_train, data_loader_val : torch.utils.data.DataLoader
+        Training and validation dataloader that does not apply any
+        augmentations. Just casting to tensor and then normalizing.
+
+    Returns
+    -------
+    val_accuracy : float
+        Validation accuracy.
+    """
+    device = next(backbone.parameters()).device
+
+    data_loaders = {
+        "train": data_loader_train,
+        "val": data_loader_val,
+    }
+    lists = {
+        "X_train": [],
+        "y_train": [],
+        "X_val": [],
+        "y_val": [],
+    }
+
+    for name, data_loader in data_loaders.items():
+        for imgs, y in data_loader:
+            imgs = imgs.to(device)
+            lists[f"X_{name}"].append(backbone(imgs).detach().cpu().numpy())
+            lists[f"y_{name}"].append(y.detach().cpu().numpy())
+
+    arrays = {k: np.concatenate(l) for k, l in lists.items()}
+
+    estimator = LogisticRegression()
+    estimator.fit(arrays["X_train"], arrays["y_train"])
+    y_val_pred = estimator.predict(arrays["X_val"])
+
+    acc = classification_report(arrays["y_val"], y_val_pred, output_dict=True)
+
+    return acc
 
 
 def compute_knn(backbone, data_loader_train, data_loader_val):
@@ -50,9 +102,10 @@ def compute_knn(backbone, data_loader_train, data_loader_val):
     estimator.fit(arrays["X_train"], arrays["y_train"])
     y_val_pred = estimator.predict(arrays["X_val"])
 
-    acc = accuracy_score(arrays["y_val"], y_val_pred)
+    acc = classification_report(arrays["y_val"], y_val_pred, output_dict=True)
 
     return acc
+
 
 def compute_embedding(backbone, data_loader):
     """Compute CLS embedding and prepare for TensorBoard.
