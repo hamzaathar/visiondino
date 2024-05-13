@@ -1,6 +1,8 @@
 # visiondino
 
-An implementation of dino with...
+An implementation of dino on low cost hardware.
+
+Presentation: https://docs.google.com/presentation/d/1l0aUMh3WLxTxaUOZDbeCpdKSgatc4j1Xn1ZAvtsDdsA/edit?usp=sharing
 
 ## Getting Started
 
