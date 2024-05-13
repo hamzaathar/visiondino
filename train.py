@@ -43,7 +43,6 @@ def main():
     parser.add_argument("--student-temp", type=float, default=0.1)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("-w", "--weight-decay", type=float, default=0.4)
-    parser.add_argument("-m", "--last-model-file", type=str, default="latest_model.pth")
 
     args = parser.parse_args()
     print(vars(args))
@@ -173,14 +172,7 @@ def main():
     num_batches = len(train_dataset_aug) // args.batch_size
     best_accuracy = 0
     num_steps = 0
-
-    # Preload
-    print(f'Preloading model {args.last_model_file}')
-    state = torch.load(args.last_model_file)
-    student_model.load_state_dict(state['student_state_dict'])
-    initial_epoch = state['epoch'] + 1
-    optimizer.load_state_dict(state['optim_state_dict'])
-    num_steps = state['num_steps']
+    initial_epoch = 0
 
     for epoch in range(initial_epoch, args.n_epochs):
         # as this is self supervised learning, we dont use the labels from the loader
@@ -250,13 +242,6 @@ def main():
 
             num_steps += 1
 
-            torch.save({
-            'epoch': epoch,
-            'teacher_state_dict': teacher_model.state_dict(),
-            'student_state_dict': student_model.state_dict(),
-            'optim_state_dict': optimizer.state_dict(),
-            'num_steps': num_steps
-            }, args.last_model_file)
 
 
 if __name__ == "__main__":
