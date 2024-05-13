@@ -9,10 +9,9 @@ import torchvision
 import tqdm
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
+from torchvision.datasets import ImageFolder
 
-from torch.utils.data import Subset
-
-from evaluation import compute_embedding, compute_knn, compute_logReg
+from evaluation import compute_embedding, compute_knn
 from utils import Head, DINOLoss, MultiCropWrapper, clip_gradients
 from DataAugmentation import DataAugmentation
 import tensorflow as tf
@@ -38,7 +37,6 @@ def main():
     parser.add_argument("--clip-grad", type=float, default=2.0)
     parser.add_argument("--norm-last-layer", action="store_true")
     parser.add_argument("--batch-size-eval", type=int, default=64)
-    parser.add_argument("--subset", type=int, default=0)
     parser.add_argument("--teacher-temp", type=float, default=0.04)
     parser.add_argument("--student-temp", type=float, default=0.1)
     parser.add_argument("--pretrained", action="store_true")
@@ -49,7 +47,7 @@ def main():
     print(vars(args))
 
     # Dataset paths
-    # labels_path = pathlib.Path("data/imagenette_labels.json")
+    labels_path = pathlib.Path("data/imagenette_labels.json")
 
     # Tensorboard logging
     logging_dir = pathlib.Path(args.tensorboard_dir)
@@ -89,21 +87,6 @@ def main():
                                                      download=True,
                                                      train=False,
                                                      transform=plain_transform)
-
-    if args.subset != 0:
-        train_aug_classes = train_dataset_aug.classes
-        train_plain_classes = train_dataset_plain.classes
-        val_plan_classes = val_dataset_plain.classes
-
-        num_images = 300
-        subset_indices = range(num_images)
-
-        train_dataset_aug = Subset(train_dataset_aug, subset_indices)
-        train_dataset_aug.classes = train_aug_classes
-        train_dataset_plain = Subset(train_dataset_plain, subset_indices)
-        train_dataset_plain.classes = train_plain_classes
-        val_dataset_plain = Subset(val_dataset_plain, subset_indices)
-        val_dataset_plain.classes = val_plan_classes
 
     if train_dataset_plain.classes != val_dataset_plain.classes:
         raise ValueError("Inconsistent classes")
@@ -204,20 +187,11 @@ def main():
                 # compute accuracy of model using KNN
                 current_accuracy = compute_knn(
                     student_model.backbone, train_loader_plain, val_loader_plain)
-                writer.add_scalar(
-                    "knn-accuracy", current_accuracy['accuracy'], num_steps)
-                writer.add_scalar(
-                    "knn-fscore", current_accuracy['weighted avg']['f1-score'], num_steps)
-                print("Accuracy:", current_accuracy['accuracy'])
+                writer.add_scalar("knn-accuracy", current_accuracy, num_steps)
 
-                file = open("results.txt", "a")
-                file.write(json.dumps(current_accuracy)+"\n")
-                file.close()
-
-                # Save best model
-                if current_accuracy['accuracy'] > best_accuracy:
+                if current_accuracy > best_accuracy:  # Save best model
                     torch.save(student_model, logging_dir / "best_model.pth")
-                    best_accuracy = current_accuracy['accuracy']
+                    best_accuracy = current_accuracy
 
                 student_model.train()
 
